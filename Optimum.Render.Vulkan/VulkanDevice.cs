@@ -24,7 +24,7 @@ namespace Optimum.Render.Vulkan;
 /// out integer ids, because the game's public API exposes raw GL names as fields
 /// that mods read and pass back.
 /// </summary>
-public sealed unsafe class VulkanDevice : IDisposable, Platform.ILatencyStageListener
+public sealed unsafe partial class VulkanDevice : IDisposable, Platform.ILatencyStageListener
 {
     /// <summary>The platform's stage bracket reaches the latency markers here (seam S4).</summary>
     void Platform.ILatencyStageListener.OnFrameRenderStart() => NoteRenderStageStarted();
@@ -183,6 +183,18 @@ public sealed unsafe class VulkanDevice : IDisposable, Platform.ILatencyStageLis
     {
         if (!OptimumConfig.LatencyEnabled) return LatencySettings.Disabled;
         return new LatencySettings(OptimumConfig.LatencyBoost ? LatencyMode.Boost : LatencyMode.On, 0);
+    }
+
+    /// <summary>
+    /// The persisted latency setting changed while the client runs (the Optimum
+    /// settings tab). The backend is not replaced - which backend this device uses is
+    /// a device-and-driver question answered at bring-up - only its mode and boost,
+    /// which is the same call bring-up makes and which every backend already re-applies
+    /// on each swapchain creation.
+    /// </summary>
+    internal void ReapplyLatencySettings()
+    {
+        Latency.Apply(LatencySettingsFromConfig());
     }
 
     /// <summary>
@@ -1829,6 +1841,24 @@ public sealed unsafe class VulkanDevice : IDisposable, Platform.ILatencyStageLis
             ? state with { LodBias = value }
             : state;
     }
+
+    /// <summary>
+    /// Test seam: the LOD bias a draw would sample this texture with when no
+    /// sampler object overrides it, or NaN when the id names no texture. This is
+    /// the state the sampler cache keys on, so it is what the GPU sees.
+    /// </summary>
+    internal float TextureLodBias(int textureId)
+    {
+        VulkanTexture? texture = _textures.Get(textureId);
+        return texture == null ? float.NaN : texture.State.LodBias;
+    }
+
+    /// <summary>
+    /// Test seam: the LOD bias a sampler object carries - the value that wins on
+    /// every unit it is bound to - or NaN when the id names no sampler.
+    /// </summary>
+    internal float SamplerLodBias(int samplerId) =>
+        _standaloneSamplers.TryGetValue(samplerId, out SamplerState state) ? state.LodBias : float.NaN;
 
     public void BindSampler(int unit, int samplerId)
     {
